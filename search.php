@@ -1413,7 +1413,7 @@ foreach ($wordcloudData as $row) {
                     return { tag: '挑戰者', box: 'bg-rose-50 border-rose-300', tagCls: 'text-rose-600', text: '這家公司未揭露薪資中位數，以同業為基準：高於 9 成同業。' };
                 }
                 const ratio = expect / companyMedian;
-                if (ratio < 0.9) return {
+                if (ratio <= 0.9) return {
                     tag: '保守牌', box: 'bg-emerald-50 border-emerald-300', tagCls: 'text-emerald-600',
                     text: `比這家公司中位數低 ${Math.round((1 - ratio) * 100)}%，是相對安全的開價。${pctNote}`
                 };
@@ -1463,11 +1463,11 @@ foreach ($wordcloudData as $row) {
                 }
             }
 
-            // 快捷試算：保守 / 合理 / 進取（相對公司中位數）
+            // 快捷試算：保守 / 合理 / 進取（相對公司中位數，不取整到 10 萬以免跨過門檻）
             const quickTargets = {
-                conservative: clamp(Math.round((baseVal * 0.9) / 10) * 10),
-                fair: clamp(Math.round(baseVal / 10) * 10),
-                aggressive: clamp(Math.round((baseVal * 1.2) / 10) * 10)
+                conservative: clamp(Math.floor(baseVal * 0.9)),
+                fair: clamp(Math.round(baseVal)),
+                aggressive: clamp(Math.ceil(baseVal * 1.2))
             };
             function setActiveBtn(key) {
                 quickBtns.forEach(b => {
