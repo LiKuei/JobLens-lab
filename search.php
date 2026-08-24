@@ -200,6 +200,19 @@ $stmt = $pdo->prepare("
 $stmt->execute([$company['Sector']]);
 $averages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Salary Locator: 同 Sector 全部公司 2024 年中位數分布（萬元，升冪）
+$stmt = $pdo->prepare("
+    SELECT c.Name, c.Id, s.NonAdminstrativeMedian
+    FROM company c
+    JOIN salary s ON c.Id = s.CompanyId AND s.Year = 2024
+    JOIN companycategory cc ON c.Id = cc.CompanyId
+    WHERE cc.Sector = ?
+      AND s.NonAdminstrativeMedian IS NOT NULL
+    ORDER BY s.NonAdminstrativeMedian ASC
+");
+$stmt->execute([$company['Sector']]);
+$sectorMedians = array_map(fn($r) => round($r['NonAdminstrativeMedian'] / 10000, 1), $stmt->fetchAll(PDO::FETCH_ASSOC));
+
 // Disasters
 $stmt = $pdo->prepare("SELECT * FROM disaster WHERE BusinessUnitUniformId = ? OR ProjectOwnerUniformId  = ?");
 $stmt->execute([$company['UniformId'], $company['UniformId']]);
@@ -273,6 +286,7 @@ foreach ($wordcloudData as $row) {
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/wordcloud2.js/1.2.2/wordcloud2.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
@@ -508,6 +522,50 @@ foreach ($wordcloudData as $row) {
                     </div>
                 </div>
             </div>
+        <?php if (!empty($sectorMedians) && count($sectorMedians) >= 3): ?>
+        <!-- 期望薪資定位器 (實驗場 Pilot) -->
+        <div id="salary-locator-card" class="bg-white rounded-xl shadow-lg border border-slate-100 p-6 mt-6">
+            <div class="flex flex-col md:flex-row md:items-end justify-between gap-3 mb-1">
+                <h4 class="text-lg font-bold flex items-center gap-2 text-slate-700">
+                    <img src="assets/money.png" class="w-6 h-6 object-contain">
+                    你的期望薪資，在同業排第幾？
+                </h4>
+                <span class="text-[10px] bg-cyan-50 text-cyan-700 px-2.5 py-1 rounded-full font-bold whitespace-nowrap">
+                    基準：<?= htmlspecialchars($company['Sector'] ?? '同產業') ?> 同業 <?= count($sectorMedians) ?> 家公司 · 2024 年非主管全時員工薪資中位數
+                </span>
+            </div>
+            <p class="text-slate-400 text-xs mb-5">拖曳滑桿輸入你的期望年薪，看看這數字在同業薪資分布中落在哪個位置。</p>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+                <div class="lg:col-span-2 flex flex-col justify-center">
+                    <div class="h-[240px]">
+                        <canvas id="salary-dist-chart"></canvas>
+                    </div>
+                </div>
+                <div class="flex flex-col justify-center gap-4">
+                    <div>
+                        <label for="locator-slider" class="text-xs font-bold text-slate-500">期望年薪（萬元／年）</label>
+                        <input type="range" id="locator-slider" min="30" max="300" step="1" value="100"
+                               class="w-full mt-2 accent-cyan-600 cursor-pointer">
+                        <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+                            <span id="locator-min-label"></span><span id="locator-max-label"></span>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 rounded-xl border border-slate-200 p-4 text-center">
+                        <p class="text-xs font-bold text-slate-500 mb-1">你的期望值</p>
+                        <p class="text-3xl font-bold text-violet-600" id="locator-value">—</p>
+                        <p class="text-xs text-slate-400">萬 / 年</p>
+                    </div>
+                    <div class="bg-violet-50 rounded-xl border border-violet-200 p-4 text-center">
+                        <p class="text-violet-700 text-xs font-bold mb-1"><i class="fa-solid fa-bullseye"></i> 同業百分位</p>
+                        <p class="text-3xl font-bold text-violet-700" id="locator-percentile">—</p>
+                        <p class="text-xs text-violet-500 mt-1" id="locator-desc"></p>
+                    </div>
+                    <p class="text-[11px] text-slate-400 leading-relaxed" id="locator-compare"></p>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
         </section>
 
         <section id="section-rank" class="scroll-mt-24 relative">
@@ -1184,6 +1242,121 @@ foreach ($wordcloudData as $row) {
             });
         }
         
+        // --- 2.5 期望薪資定位器 (實驗場 Pilot) ---
+        <?php if (!empty($sectorMedians) && count($sectorMedians) >= 3): ?>
+        (function initSalaryLocator() {
+            const card = document.getElementById('salary-locator-card');
+            if (!card) return;
+            const sectorData = <?= json_encode($sectorMedians) ?>;
+            const companyMedian = <?= isset($company['NonAdminstrativeMedian']) ? round($company['NonAdminstrativeMedian'] / 10000, 1) : 'null' ?>;
+
+            const slider = document.getElementById('locator-slider');
+            const valLabel = document.getElementById('locator-value');
+            const pctLabel = document.getElementById('locator-percentile');
+            const descLabel = document.getElementById('locator-desc');
+            const cmpLabel = document.getElementById('locator-compare');
+
+            // 滑桿範圍覆蓋資料分布（含 padding）
+            const dMin = Math.min(...sectorData), dMax = Math.max(...sectorData);
+            const sMin = Math.max(20, Math.floor((dMin - 10) / 10) * 10);
+            const sMax = Math.ceil((dMax + 10) / 10) * 10;
+            slider.min = sMin; slider.max = sMax; slider.step = 1;
+            document.getElementById('locator-min-label').innerText = sMin + ' 萬';
+            document.getElementById('locator-max-label').innerText = sMax + ' 萬';
+
+            // 預設值 = 公司中位數；沒有就用同業中位數
+            let defaultVal = companyMedian;
+            if (defaultVal === null || defaultVal === undefined) {
+                const sorted = [...sectorData].sort((a, b) => a - b);
+                defaultVal = sorted[Math.floor(sorted.length / 2)];
+            }
+            slider.value = Math.min(Math.max(defaultVal, sMin), sMax);
+
+            // 直方圖分桶
+            const binW = (sMax - sMin) > 200 ? 20 : 10;
+            const bins = {};
+            for (let v = Math.floor(sMin / binW) * binW; v <= sMax; v += binW) bins[v] = 0;
+            sectorData.forEach(v => { const b = Math.floor(v / binW) * binW; if (bins[b] !== undefined) bins[b]++; });
+            const binEntries = Object.entries(bins).map(([lo, count]) => ({
+                x: parseFloat(lo) + binW / 2, y: count,
+                label: `${parseFloat(lo)}-${parseFloat(lo) + binW}`
+            }));
+
+            const hasAnnotation = typeof annotationPlugin !== 'undefined';
+            if (hasAnnotation) Chart.register(annotationPlugin);
+
+            const chart = new Chart(document.getElementById('salary-dist-chart').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    datasets: [{
+                        label: '同業家數',
+                        data: binEntries,
+                        backgroundColor: 'rgba(8, 145, 178, 0.35)',
+                        borderColor: 'rgba(8, 145, 178, 0.8)',
+                        borderWidth: 1,
+                        barPercentage: 1.0,
+                        categoryPercentage: 1.0
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: (items) => `${items[0].raw.label} 萬／年`,
+                                label: (item) => `${item.raw.y} 家公司的中位數落在這區間`
+                            }
+                        },
+                        annotation: hasAnnotation ? {
+                            annotations: {
+                                companyLine: companyMedian !== null ? {
+                                    type: 'line', scaleID: 'x', value: companyMedian,
+                                    borderColor: '#0891b2', borderWidth: 2, borderDash: [6, 4],
+                                    label: { display: true, content: `公司中位數 ${companyMedian} 萬`, position: 'start', backgroundColor: '#0891b2', font: { size: 10, weight: 'bold' } }
+                                } : false,
+                                expectLine: {
+                                    type: 'line', scaleID: 'x', value: parseFloat(slider.value),
+                                    borderColor: '#7c3aed', borderWidth: 2.5,
+                                    label: { display: true, content: `期望值 ${slider.value} 萬`, position: 'end', backgroundColor: '#7c3aed', font: { size: 10, weight: 'bold' } }
+                                }
+                            }
+                        } : {}
+                    },
+                    scales: {
+                        x: { type: 'linear', min: sMin, max: sMax, grid: { display: false }, ticks: { callback: v => v + '萬' } },
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { precision: 0 } }
+                    }
+                }
+            });
+
+            function update(expect) {
+                valLabel.innerText = expect.toLocaleString();
+                const pct = Math.round(sectorData.filter(v => v <= expect).length / sectorData.length * 100);
+                pctLabel.innerText = `第 ${pct} 百分位`;
+                descLabel.innerText = `高於同業 ${pct}% 公司的中位數`;
+                if (companyMedian !== null) {
+                    const diff = expect - companyMedian;
+                    cmpLabel.innerHTML = diff > 0
+                        ? `比這家公司 2024 年中位數（${companyMedian} 萬）<span class="text-emerald-600 font-bold">高 ${diff.toFixed(0)} 萬</span>`
+                        : diff < 0
+                        ? `比這家公司 2024 年中位數（${companyMedian} 萬）<span class="text-rose-500 font-bold">低 ${Math.abs(diff).toFixed(0)} 萬</span>`
+                        : `正好等於這家公司 2024 年的薪資中位數`;
+                } else {
+                    cmpLabel.innerText = `同業 ${sectorData.length} 家公司中位數介於 ${dMin} ~ ${dMax} 萬`;
+                }
+                if (hasAnnotation) {
+                    chart.options.plugins.annotation.annotations.expectLine.value = expect;
+                    chart.options.plugins.annotation.annotations.expectLine.label.content = `期望值 ${expect} 萬`;
+                    chart.update();
+                }
+            }
+
+            slider.addEventListener('input', () => update(parseFloat(slider.value)));
+            update(parseFloat(slider.value));
+        })();
+        <?php endif; ?>
+
         // --- 3. 工安數據 ---
         <?php
         $keyedSafetyData = array_column($safetyRecords, null, 'Year');
