@@ -307,7 +307,6 @@ foreach ($wordcloudData as $row) {
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/wordcloud2.js/1.2.2/wordcloud2.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
@@ -544,7 +543,7 @@ foreach ($wordcloudData as $row) {
                 </div>
             </div>
         <?php if (!empty($sectorMedians) && count($sectorMedians) >= 3): ?>
-        <!-- 面試談薪定位器 (實驗場 v2) -->
+        <!-- 面試談薪定位器 (實驗場 v4：無圖精簡版) -->
         <div id="salary-locator-card" class="bg-white rounded-xl shadow-lg border border-slate-100 p-6 mt-6">
             <div class="flex flex-col md:flex-row md:items-end justify-between gap-3 mb-1">
                 <h4 class="text-lg font-bold flex items-center gap-2 text-slate-700">
@@ -555,26 +554,21 @@ foreach ($wordcloudData as $row) {
                     基準：<?= htmlspecialchars($company['Sector'] ?? '同產業') ?> 同業 <?= count($sectorMedians) ?> 家公司 · 2024 年非主管全時員工薪資中位數
                 </span>
             </div>
-            <p class="text-slate-400 text-xs mb-5">拖曳滑桿模擬面試開價，看看這數字落在同業談判空間的哪個位置。</p>
+            <p class="text-slate-400 text-xs mb-5">拖曳滑桿模擬面試開價，看看這數字在同業談判空間的哪個位置。</p>
 
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
-                <div class="lg:col-span-2 flex flex-col justify-center">
-                    <div class="h-[240px]">
-                        <canvas id="salary-dist-chart"></canvas>
-                    </div>
-                </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
                 <div class="flex flex-col justify-center gap-4">
                     <div>
-                        <label for="locator-slider" class="text-xs font-bold text-slate-500">面試期望年薪（萬元／年）</label>
+                        <label for="locator-slider" class="text-sm font-bold text-slate-600">面試期望年薪（萬元／年）</label>
                         <input type="range" id="locator-slider" min="30" max="300" step="1" value="100"
                                class="w-full mt-2 accent-cyan-600 cursor-pointer">
-                        <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+                        <div class="flex justify-between text-xs text-slate-400 mt-1">
                             <span id="locator-min-label"></span><span id="locator-max-label"></span>
                         </div>
                         <div class="flex gap-2 mt-3" id="locator-quick-btns">
-                            <button data-quick="conservative" class="quick-btn flex-1 text-xs font-bold py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition">保守</button>
-                            <button data-quick="fair" class="quick-btn flex-1 text-xs font-bold py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition">合理</button>
-                            <button data-quick="aggressive" class="quick-btn flex-1 text-xs font-bold py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition">進取</button>
+                            <button data-quick="conservative" class="quick-btn flex-1 text-sm font-bold py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition">保守</button>
+                            <button data-quick="fair" class="quick-btn flex-1 text-sm font-bold py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition">合理</button>
+                            <button data-quick="aggressive" class="quick-btn flex-1 text-sm font-bold py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition">進取</button>
                         </div>
                     </div>
                     <div class="bg-slate-50 rounded-xl border border-slate-200 p-4 flex items-center justify-between gap-2">
@@ -589,9 +583,11 @@ foreach ($wordcloudData as $row) {
                             <p class="text-[10px] text-slate-400" id="locator-desc"></p>
                         </div>
                     </div>
-                    <div id="locator-advice" class="rounded-xl border p-4 transition-all duration-300">
-                        <p class="text-xs font-bold mb-1" id="locator-advice-tag">—</p>
-                        <p class="text-sm leading-relaxed" id="locator-advice-text"></p>
+                </div>
+                <div class="flex flex-col justify-center gap-4">
+                    <div id="locator-advice" class="rounded-xl border p-5 transition-all duration-300">
+                        <p class="text-sm font-bold mb-1" id="locator-advice-tag">—</p>
+                        <p class="text-base leading-relaxed" id="locator-advice-text"></p>
                     </div>
                     <div id="locator-compare-card" class="bg-cyan-50 rounded-xl border border-cyan-200 p-4 text-center">
                         <p class="text-[11px] text-cyan-700/80 mb-1">與這家公司 2024 年中位數相比</p>
@@ -1323,86 +1319,6 @@ foreach ($wordcloudData as $row) {
             const clamp = v => Math.min(Math.max(v, sMin), sMax);
             slider.value = clamp(baseVal);
 
-            // 直方圖分桶
-            const binW = (sMax - sMin) > 200 ? 20 : 10;
-            const bins = {};
-            for (let v = Math.floor(sMin / binW) * binW; v <= sMax; v += binW) bins[v] = 0;
-            sectorData.forEach(v => { const b = Math.floor(v / binW) * binW; if (bins[b] !== undefined) bins[b]++; });
-            const binEntries = Object.entries(bins).map(([lo, count]) => ({
-                x: parseFloat(lo) + binW / 2, y: count,
-                label: `${parseFloat(lo)}-${parseFloat(lo) + binW}`
-            }));
-
-            // 公司中位數所在的 bin → 獨立高亮柱
-            const companyBinLo = companyMedian !== null ? Math.floor(companyMedian / binW) * binW : null;
-            const companyBar = companyBinLo !== null && bins[companyBinLo] !== undefined
-                ? binEntries.filter(e => e.x === companyBinLo + binW / 2).map(e => ({ ...e }))
-                : [];
-            const normalBars = companyBinLo !== null
-                ? binEntries.filter(e => e.x !== companyBinLo + binW / 2)
-                : binEntries;
-
-            const hasAnnotation = typeof annotationPlugin !== 'undefined';
-            if (hasAnnotation) Chart.register(annotationPlugin);
-
-            const chart = new Chart(document.getElementById('salary-dist-chart').getContext('2d'), {
-                type: 'bar',
-                data: {
-                    datasets: [
-                        {
-                            label: '同業家數',
-                            data: normalBars,
-                            backgroundColor: 'rgba(148, 163, 184, 0.4)',
-                            borderColor: 'rgba(148, 163, 184, 0.7)',
-                            borderWidth: 1,
-                            barPercentage: 1.0,
-                            categoryPercentage: 1.0
-                        },
-                        {
-                            label: '這家公司',
-                            data: companyBar,
-                            backgroundColor: 'rgba(8, 145, 178, 0.85)',
-                            borderColor: '#0e7490',
-                            borderWidth: 1.5,
-                            barPercentage: 1.0,
-                            categoryPercentage: 1.0
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            callbacks: {
-                                title: (items) => `${items[0].raw.label} 萬／年`,
-                                label: (item) => item.dataset.label === '這家公司'
-                                    ? `這家公司中位數落在這區間`
-                                    : `${item.raw.y} 家公司的中位數落在這區間`
-                            }
-                        },
-                        annotation: hasAnnotation ? {
-                            annotations: {
-                                companyLine: companyMedian !== null ? {
-                                    type: 'line', scaleID: 'x', value: companyMedian,
-                                    borderColor: '#0e7490', borderWidth: 2.5,
-                                    label: { display: true, content: `這家公司 ${companyMedian} 萬`, position: 'start', backgroundColor: '#0e7490', font: { size: 10, weight: 'bold' } }
-                                } : false,
-                                expectLine: {
-                                    type: 'line', scaleID: 'x', value: parseFloat(slider.value),
-                                    borderColor: '#7c3aed', borderWidth: 2.5,
-                                    label: { display: true, content: `你的開價 ${slider.value} 萬`, position: 'end', backgroundColor: '#7c3aed', font: { size: 10, weight: 'bold' } }
-                                }
-                            }
-                        } : {}
-                    },
-                    scales: {
-                        x: { type: 'linear', min: sMin, max: sMax, grid: { display: false }, ticks: { callback: v => v + '萬' } },
-                        y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { precision: 0 } }
-                    }
-                }
-            });
-
             // 談薪建議：以「這家公司中位數」為基準（同業百分位作補充）
             function adviceFor(expect, pct) {
                 const pctNote = `（同業中也排到第 ${pct} 百分位）`;
@@ -1454,12 +1370,6 @@ foreach ($wordcloudData as $row) {
                     }
                 } else {
                     cmpLabel.innerText = `同業 ${sectorData.length} 家公司中位數介於 ${dMin} ~ ${dMax} 萬`;
-                }
-
-                if (hasAnnotation) {
-                    chart.options.plugins.annotation.annotations.expectLine.value = expect;
-                    chart.options.plugins.annotation.annotations.expectLine.label.content = `你的開價 ${expect} 萬`;
-                    chart.update();
                 }
             }
 
