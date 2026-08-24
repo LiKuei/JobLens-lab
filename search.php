@@ -171,6 +171,27 @@ $stmt = $pdo->prepare("SELECT * FROM company c LEFT JOIN salary s ON c.Id = s.Co
 $stmt->execute([$company['Id']]);
 $salaries = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// 分紅依賴度：解析職缺月薪，與中位數等效月薪比較
+$jobSalaries = [];
+foreach ($jobsList as $j) {
+    if (empty($j['Salary']) || str_contains($j['Salary'], '面議') || str_contains($j['Salary'], '依公司規定')) continue;
+    if (preg_match_all('/\d[\d,]*/', $j['Salary'], $m)) {
+        $nums = array_map(fn($s) => (int)str_replace(',', '', $s), $m[0]);
+        $jobSalaries[] = count($nums) >= 2 ? ($nums[0] + $nums[1]) / 2 : $nums[0];
+    }
+}
+$salaryInsight = null;
+if (count($jobSalaries) >= 3 && !empty($company['NonAdminstrativeMedian'])) {
+    sort($jobSalaries);
+    $insightCount = count($jobSalaries);
+    $insightJobMed = $jobSalaries[intdiv($insightCount, 2)];
+    $insightEquivMonthly = round($company['NonAdminstrativeMedian'] / 12); // 元/月
+    $insightRatio = $insightEquivMonthly / $insightJobMed;
+    $insightJobMin = min($jobSalaries);
+    $insightJobMax = max($jobSalaries);
+    $salaryInsight = compact('insightCount', 'insightJobMed', 'insightEquivMonthly', 'insightRatio', 'insightJobMin', 'insightJobMax');
+}
+
 // Company list
 $stmt = $pdo->prepare("SELECT * FROM company");
 $stmt->execute();
@@ -578,6 +599,17 @@ foreach ($wordcloudData as $row) {
                     </div>
                 </div>
             </div>
+            <?php if ($salaryInsight): ?>
+            <div class="mt-4 pt-3 border-t border-slate-100 flex items-start gap-2 text-[11px] text-slate-500 leading-relaxed">
+                <span class="mt-1 w-2 h-2 rounded-full inline-block flex-shrink-0 <?= $insightRatio >= 2.5 ? 'bg-rose-500' : ($insightRatio >= 1.5 ? 'bg-amber-500' : 'bg-emerald-500') ?>"></span>
+                <span>
+                    新進職缺月薪約 <b class="text-slate-600"><?= number_format($insightJobMed) ?> 元</b>
+                    （<?= $insightCount ?> 筆，介於 <?= number_format($insightJobMin) ?> ~ <?= number_format($insightJobMax) ?> 元），
+                    全公司等效月薪 <b class="text-slate-600"><?= number_format($insightEquivMonthly) ?> 元</b> —
+                    <?= $insightRatio >= 2.5 ? '這家公司收入高度依賴分紅與年資，新進第一年總收入可能遠低於中位數' : ($insightRatio >= 1.5 ? '收入有相當部分來自分紅，中位數僅供長期參考' : '薪資結構以月薪為主，中位數貼近實際月薪水準') ?>
+                </span>
+            </div>
+            <?php endif; ?>
         </div>
         <?php endif; ?>
         </section>
