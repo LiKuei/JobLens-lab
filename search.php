@@ -551,9 +551,9 @@ foreach ($wordcloudData as $row) {
                             <span id="locator-min-label"></span><span id="locator-max-label"></span>
                         </div>
                         <div class="flex gap-2 mt-3" id="locator-quick-btns">
-                            <button data-quick="conservative" class="flex-1 text-xs font-bold py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition">保守</button>
-                            <button data-quick="fair" class="flex-1 text-xs font-bold py-1.5 rounded-lg border border-cyan-500 text-cyan-700 bg-cyan-50 hover:bg-cyan-100 transition">合理</button>
-                            <button data-quick="aggressive" class="flex-1 text-xs font-bold py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition">進取</button>
+                            <button data-quick="conservative" class="quick-btn flex-1 text-xs font-bold py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition">保守</button>
+                            <button data-quick="fair" class="quick-btn flex-1 text-xs font-bold py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition">合理</button>
+                            <button data-quick="aggressive" class="quick-btn flex-1 text-xs font-bold py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition">進取</button>
                         </div>
                     </div>
                     <div class="bg-slate-50 rounded-xl border border-slate-200 p-4 flex items-center justify-between gap-2">
@@ -572,9 +572,9 @@ foreach ($wordcloudData as $row) {
                         <p class="text-xs font-bold mb-1" id="locator-advice-tag">—</p>
                         <p class="text-sm leading-relaxed" id="locator-advice-text"></p>
                     </div>
-                    <div id="locator-compare-card" class="bg-slate-900 rounded-xl p-4 text-center">
-                        <p class="text-[11px] text-slate-400 mb-1">與這家公司 2024 年中位數相比</p>
-                        <p class="text-xl font-bold text-white" id="locator-compare">—</p>
+                    <div id="locator-compare-card" class="bg-cyan-50 rounded-xl border border-cyan-200 p-4 text-center">
+                        <p class="text-[11px] text-cyan-700/80 mb-1">與這家公司 2024 年中位數相比</p>
+                        <p class="text-xl font-bold text-cyan-800" id="locator-compare">—</p>
                     </div>
                 </div>
             </div>
@@ -1371,27 +1371,31 @@ foreach ($wordcloudData as $row) {
                 }
             });
 
-            // 談薪建議：百分位 → 建議
-            function adviceFor(pct) {
-                if (pct < 15) return {
+            // 談薪建議：以「這家公司中位數」為基準（同業百分位作補充）
+            function adviceFor(expect, pct) {
+                const pctNote = `（同業中也排到第 ${pct} 百分位）`;
+                if (companyMedian === null) {
+                    if (pct < 40) return { tag: '安全牌', box: 'bg-cyan-50 border-cyan-300', tagCls: 'text-cyan-700', text: '這家公司未揭露薪資中位數，以同業為基準：落在同業前段的安全區。' };
+                    if (pct < 60) return { tag: '合理牌', box: 'bg-cyan-50 border-cyan-300', tagCls: 'text-cyan-700', text: '這家公司未揭露薪資中位數，以同業為基準：正落在同業中間。' };
+                    if (pct < 85) return { tag: '進取牌', box: 'bg-amber-50 border-amber-300', tagCls: 'text-amber-600', text: '這家公司未揭露薪資中位數，以同業為基準：高於多數同業。' };
+                    return { tag: '挑戰者', box: 'bg-rose-50 border-rose-300', tagCls: 'text-rose-600', text: '這家公司未揭露薪資中位數，以同業為基準：高於 9 成同業。' };
+                }
+                const ratio = expect / companyMedian;
+                if (ratio < 0.9) return {
                     tag: '保守牌', box: 'bg-emerald-50 border-emerald-300', tagCls: 'text-emerald-600',
-                    text: `開價偏低——同業 ${100 - pct}% 的公司中位數都比這高。面試時可以更大膽一點，別讓自己吃虧。`
+                    text: `比這家公司中位數低 ${Math.round((1 - ratio) * 100)}%，是相對安全的開價。${pctNote}`
                 };
-                if (pct < 40) return {
-                    tag: '安全牌', box: 'bg-cyan-50 border-cyan-300', tagCls: 'text-cyan-700',
-                    text: '落在同業前段的安全區，面試開這個數字不容易被打槍，適合求穩。'
-                };
-                if (pct < 60) return {
+                if (ratio < 1.05) return {
                     tag: '合理牌', box: 'bg-cyan-50 border-cyan-300', tagCls: 'text-cyan-700',
-                    text: '正落在同業中間，這是談判最穩的區間，進可攻退可守。'
+                    text: `緊貼這家公司中位數（${companyMedian} 萬），是談判最合理的區間。${pctNote}`
                 };
-                if (pct < 85) return {
+                if (ratio < 1.3) return {
                     tag: '進取牌', box: 'bg-amber-50 border-amber-300', tagCls: 'text-amber-600',
-                    text: '高於多數同業中位數，端看你的籌碼和面試表現，值得一試。'
+                    text: `比這家公司中位數高 ${Math.round((ratio - 1) * 100)}%，需要夠力的籌碼支撐。${pctNote}`
                 };
                 return {
                     tag: '挑戰者', box: 'bg-rose-50 border-rose-300', tagCls: 'text-rose-600',
-                    text: `高於 ${100 - pct}% 同業？這開價很有企圖心，要有強力籌碼才開得出來。`
+                    text: `比這家公司中位數高出 ${Math.round((ratio - 1) * 100)}%，除非你有很特別的優勢，否則難度很高。${pctNote}`
                 };
             }
 
@@ -1401,7 +1405,7 @@ foreach ($wordcloudData as $row) {
                 pctLabel.innerText = `第 ${pct} 百分位`;
                 descLabel.innerText = `高於同業 ${pct}% 中位數`;
 
-                const adv = adviceFor(pct);
+                const adv = adviceFor(expect, pct);
                 adviceBox.className = 'rounded-xl border p-4 transition-all duration-300 ' + adv.box;
                 adviceTag.className = 'text-xs font-bold mb-1 ' + adv.tagCls;
                 adviceTag.innerText = '💡 ' + adv.tag;
@@ -1414,7 +1418,7 @@ foreach ($wordcloudData as $row) {
                         cmpLabel.innerHTML = `約等於公司中位數（${companyMedian} 萬）`;
                     } else {
                         const sign = diff > 0 ? '+' : '-';
-                        cmpLabel.innerHTML = `<span class="${diff > 0 ? 'text-emerald-400' : 'text-rose-400'}">${sign}${absDiff.toFixed(0)} 萬</span> <span class="text-slate-300 font-normal text-sm">（公司中位數 ${companyMedian} 萬）</span>`;
+                        cmpLabel.innerHTML = `<span class="${diff > 0 ? 'text-emerald-600' : 'text-rose-500'}">${sign}${absDiff.toFixed(0)} 萬</span> <span class="text-slate-400 font-normal text-sm">（公司中位數 ${companyMedian} 萬）</span>`;
                     }
                 } else {
                     cmpLabel.innerText = `同業 ${sectorData.length} 家公司中位數介於 ${dMin} ~ ${dMax} 萬`;
@@ -1427,15 +1431,25 @@ foreach ($wordcloudData as $row) {
                 }
             }
 
-            // 快捷試算：保守 / 合理 / 進取
+            // 快捷試算：保守 / 合理 / 進取（相對公司中位數）
             const quickTargets = {
                 conservative: clamp(Math.round((baseVal * 0.9) / 10) * 10),
                 fair: clamp(Math.round(baseVal / 10) * 10),
                 aggressive: clamp(Math.round((baseVal * 1.2) / 10) * 10)
             };
+            function setActiveBtn(key) {
+                quickBtns.forEach(b => {
+                    const active = b.dataset.quick === key;
+                    b.className = 'quick-btn flex-1 text-xs font-bold py-1.5 rounded-lg border transition ' + (active
+                        ? 'border-cyan-500 text-cyan-700 bg-cyan-50 shadow-sm'
+                        : 'border-slate-300 text-slate-600 hover:bg-slate-100');
+                });
+            }
+            setActiveBtn('fair');
             quickBtns.forEach(btn => {
                 btn.addEventListener('click', () => {
                     slider.value = quickTargets[btn.dataset.quick];
+                    setActiveBtn(btn.dataset.quick);
                     update(parseFloat(slider.value));
                 });
             });
