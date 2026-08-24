@@ -322,6 +322,12 @@ if ($jobCat && $jobCat !== '其他') {
                     </p>
                     <p class="text-[11px] text-cyan-600 mt-1">月薪（未含分紅）</p>
                 </div>
+                <?php else: ?>
+                <div class="bg-slate-50 rounded-xl border border-slate-200 p-5 text-center">
+                    <p class="text-xs font-bold text-slate-500 mb-1">這家公司「<?= $jobCat ?>」職缺開價</p>
+                    <p class="text-xl font-bold text-slate-400 mt-2">暫無公開職缺</p>
+                    <p class="text-[11px] text-slate-400 mt-1">此類職缺多為面議</p>
+                </div>
                 <?php endif; ?>
                 <div class="bg-slate-50 rounded-xl border border-slate-200 p-5 text-center">
                     <p class="text-xs font-bold text-slate-500 mb-1">這家公司全員等效月薪</p>
