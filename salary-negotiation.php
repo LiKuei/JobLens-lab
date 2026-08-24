@@ -113,18 +113,21 @@ function classifyJob(string $name): string {
 
 $jobCat = $job ? classifyJob($job['Name']) : null;
 
-// ---- 同產業該職位月薪帶（市場行情） ----
-$marketCat = null; // [min, max, count, jobMin, jobMax]
+// ---- 同產業該職位月薪帶（市場行情，樣本不足退回全台灣） ----
+$marketCat = null; // [min, max, count, jobMin, jobMax, scope]
 if ($jobCat && $jobCat !== '其他') {
+    $marketScope = '同產業';
     $stmt = $pdo->prepare("
         SELECT r.Name, r.Salary, r.CompanyId FROM recruitment r
         JOIN companycategory cc ON cc.CompanyId = r.CompanyId
         WHERE cc.Sector = ? AND r.Salary LIKE '月薪%'
     ");
     $stmt->execute([$company['Sector']]);
+    $sectorJobRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
     $catRanges = [];
     $companyCatRanges = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $sj) {
+    foreach ($sectorJobRows as $sj) {
         if (classifyJob($sj['Name']) !== $jobCat) continue;
         if (preg_match_all('/\d[\d,]*/', $sj['Salary'], $m)) {
             $nums = array_map(fn($s) => (int)str_replace(',', '', $s), $m[0]);
@@ -132,6 +135,20 @@ if ($jobCat && $jobCat !== '其他') {
             $catRanges[] = $range;
             if ((int)$sj['CompanyId'] === (int)$company['Id']) $companyCatRanges[] = $range;
         }
+    }
+    if (count($catRanges) < 5) {
+        // 同產業樣本不足 → 退回全台灣
+        $stmt = $pdo->prepare("SELECT Name, Salary, CompanyId FROM recruitment WHERE Salary LIKE '月薪%'");
+        $stmt->execute();
+        $catRanges = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $sj) {
+            if (classifyJob($sj['Name']) !== $jobCat) continue;
+            if (preg_match_all('/\d[\d,]*/', $sj['Salary'], $m)) {
+                $nums = array_map(fn($s) => (int)str_replace(',', '', $s), $m[0]);
+                $catRanges[] = [min($nums), max($nums)];
+            }
+        }
+        $marketScope = '全台灣';
     }
     if (count($catRanges) >= 5) {
         $lows = array_column($catRanges, 0); sort($lows);
@@ -143,6 +160,7 @@ if ($jobCat && $jobCat !== '其他') {
             'count' => $n,
             'jobMin' => $companyCatRanges ? min(array_column($companyCatRanges, 0)) : null,
             'jobMax' => $companyCatRanges ? max(array_column($companyCatRanges, 1)) : null,
+            'scope' => $marketScope,
         ];
     }
 }
@@ -283,11 +301,14 @@ if ($jobCat && $jobCat !== '其他') {
             <h2 class="text-lg font-bold flex items-center gap-2 text-slate-700 mb-1">
                 <i class="fa-solid fa-chart-simple text-violet-500"></i>
                 「<?= $jobCat ?>」市場行情
+                <span class="text-[10px] bg-violet-50 text-violet-600 border border-violet-200 px-2 py-0.5 rounded-full font-bold"><?= $marketCat['scope'] ?></span>
             </h2>
-            <p class="text-slate-400 text-xs mb-5">以同產業（<?= htmlspecialchars($company['Sector']) ?>）正在招募的職缺開價為基準，這是招募市場的實際月薪帶。</p>
+            <p class="text-slate-400 text-xs mb-5">
+                <?= $marketCat['scope'] === '同產業' ? '以同產業（' . htmlspecialchars($company['Sector']) . '）正在招募的職缺開價為基準，這是招募市場的實際月薪帶。' : '同產業樣本不足，改用全台灣正在招募的職缺開價為基準（職位通用性高，全台行情仍具參考價值）。' ?>
+            </p>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div class="bg-violet-50 rounded-xl border border-violet-200 p-5 text-center">
-                    <p class="text-xs font-bold text-violet-600 mb-1">同產業「<?= $jobCat ?>」月薪帶</p>
+                    <p class="text-xs font-bold text-violet-600 mb-1"><?= $marketCat['scope'] ?>「<?= $jobCat ?>」月薪帶</p>
                     <p class="text-2xl font-bold text-violet-700">
                         <?= number_format($marketCat['min']) ?> ~ <?= number_format($marketCat['max']) ?> 元
                     </p>
